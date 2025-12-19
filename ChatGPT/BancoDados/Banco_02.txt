@@ -1,0 +1,162 @@
+Estrutura do pacote:
+
+supabase_propostas/
+│
+├── __init__.py
+├── config.py              # Configurações do Supabase
+├── crud.py                # Funções CRUD
+├── views.py               # Criação de views
+└── relatorios.py          # Funções de relatórios
+
+1️⃣ config.py
+from supabase import create_client, Client
+
+# Configurações do Supabase
+SUPABASE_URL = "https://SEU_PROJETO.supabase.co"
+SUPABASE_KEY = "SUA_KEY_AQUI"
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+2️⃣ crud.py
+from .config import supabase
+
+# ----------------------------
+# CRUD clientes_x
+# ----------------------------
+def criar_cliente(dados):
+    return supabase.table("clientes_x").insert(dados).execute()
+
+def listar_clientes():
+    return supabase.table("clientes_x").select("*").execute()
+
+def atualizar_cliente(id_cliente, dados):
+    return supabase.table("clientes_x").update(dados).eq("id_cliente", id_cliente).execute()
+
+def deletar_cliente(id_cliente):
+    return supabase.table("clientes_x").delete().eq("id_cliente", id_cliente).execute()
+
+
+# ----------------------------
+# CRUD servicos
+# ----------------------------
+def criar_servico(dados):
+    return supabase.table("servicos").insert(dados).execute()
+
+def listar_servicos():
+    return supabase.table("servicos").select("*").execute()
+
+def atualizar_servico(id_servico, dados):
+    return supabase.table("servicos").update(dados).eq("id_servico", id_servico).execute()
+
+def deletar_servico(id_servico):
+    return supabase.table("servicos").delete().eq("id_servico", id_servico).execute()
+
+
+# ----------------------------
+# CRUD propostas
+# ----------------------------
+def criar_proposta(dados):
+    return supabase.table("propostas").insert(dados).execute()
+
+def listar_propostas():
+    return supabase.table("propostas").select("*").execute()
+
+def atualizar_proposta(id_proposta, dados):
+    return supabase.table("propostas").update(dados).eq("id_proposta", id_proposta).execute()
+
+def deletar_proposta(id_proposta):
+    return supabase.table("propostas").delete().eq("id_proposta", id_proposta).execute()
+
+
+# ----------------------------
+# CRUD propostas_servicos
+# ----------------------------
+def adicionar_servico_a_proposta(id_proposta, id_servico):
+    return supabase.table("propostas_servicos").insert({
+        "id_proposta": id_proposta,
+        "id_servico": id_servico
+    }).execute()
+
+def listar_servicos_da_proposta(id_proposta):
+    return supabase.table("propostas_servicos").select("*").eq("id_proposta", id_proposta).execute()
+
+def remover_servico_da_proposta(id_proposta, id_servico):
+    return supabase.table("propostas_servicos").delete().eq("id_proposta", id_proposta).eq("id_servico", id_servico).execute()
+
+3️⃣ views.py
+Criação automática de views para relatórios.
+from .config import supabase
+
+def criar_views():
+    sql_views = [
+        """
+        CREATE VIEW IF NOT EXISTS resumo_propostas AS
+        SELECT
+            c.id_cliente,
+            c.nome,
+            COUNT(p.id_proposta) AS total_propostas,
+            COALESCE(SUM(p.desconto),0) AS total_descontos
+        FROM clientes_x c
+        LEFT JOIN propostas p ON p.id_cliente = c.id_cliente
+        GROUP BY c.id_cliente, c.nome;
+        """,
+        """
+        CREATE VIEW IF NOT EXISTS propostas_com_servicos AS
+        SELECT
+            p.id_proposta,
+            p.num_proposta,
+            s.id_servico,
+            s.descricao,
+            s.valor
+        FROM propostas p
+        LEFT JOIN propostas_servicos ps ON ps.id_proposta = p.id_proposta
+        LEFT JOIN servicos s ON s.id_servico = ps.id_servico;
+        """
+    ]
+
+    for sql in sql_views:
+        supabase.rpc("exec_sql", {"sql": sql}).execute()
+
+Observação: caso queira evitar RPC, podemos criar as views manualmente no Supabase SQL Editor.
+
+4️⃣ relatorios.py
+Funções Python para gerar estatísticas.
+
+from .config import supabase
+
+def total_propostas_por_cliente():
+    res = supabase.table("resumo_propostas").select("*").execute()
+    return res.data
+
+def servicos_por_proposta():
+    res = supabase.table("propostas_com_servicos").select("*").execute()
+    return res.data
+
+=============================================================================================================
+5️⃣ Exemplo de uso do pacote
+from supabase_propostas import crud, views, relatorios
+
+# Criar uma proposta
+crud.criar_proposta({
+    "id_cliente": 1,
+    "codigo": "P123",
+    "num_proposta": "2025-001",
+    "data_emissao": "2025-12-10",
+    "validade": "2025-12-31",
+    "cond_pagamento": "30 dias",
+    "referencia": "REF001",
+    "desconto": 100
+})
+
+# Adicionar serviços à proposta
+crud.adicionar_servico_a_proposta(1, 1)
+crud.adicionar_servico_a_proposta(1, 2)
+
+# Criar views
+views.criar_views()
+
+# Obter relatórios
+print(relatorios.total_propostas_por_cliente())
+print(relatorios.servicos_por_proposta())
+
+

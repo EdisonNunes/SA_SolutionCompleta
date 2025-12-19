@@ -1,0 +1,22 @@
+1️⃣ Modelo mental do usuário (fluxo ideal)
+
+O usuário não pensa em tabelas, ele pensa assim:
+Escolho um cliente
+Informo os dados da proposta
+Incluo vários serviços (itens)
+Ajusto quantidades, prazos, descontos
+Salvo tudo
+Posso:
+editar depois
+excluir itens
+excluir a proposta inteira
+gerar PDF
+
+👉 O formulário precisa seguir esse raciocínio.
+
+2️⃣ Estrutura sugerida no Streamlit
+📌 Menu lateral
+menu = st.sidebar.radio(
+    "Propostas",
+    ["Nova Proposta", "Editar Proposta", "Excluir Proposta"]
+)

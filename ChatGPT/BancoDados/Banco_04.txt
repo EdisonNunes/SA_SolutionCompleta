@@ -1,0 +1,68 @@
+Crie uma função que copie os dados de uma planilha Excel chamada "Propostas.xlsx" na aba "Propostas" 
+para um banco de dados no supabase para uma tabela chamada "propostas" já existente e com a estrutura similar as colunas da planilha. 
+Similar a função "importar_itens_excel_para_supabase criada anteriormente".
+Após leitura da planilha e antes de enviar os dados para a tabela "propostas", elimine a coluna "Codigo"
+=============================================================================================================
+Aqui está a função pronta, seguindo exatamente o mesmo padrão da função importar_itens_excel_para_supabase, mas agora para:
+
+📄 Planilha: Propostas.xlsx
+📑 Aba: Propostas
+🗄 Tabela no Supabase: propostas
+❌ Remover coluna antes de enviar: Codigo
+
+✅ Função: importar_propostas_excel_para_supabase
+import pandas as pd
+from supabase import create_client, Client
+
+def importar_propostas_excel_para_supabase(caminho_excel: str, supabase_url: str, supabase_key: str):
+    """
+    Lê a aba 'Propostas' da planilha Propostas.xlsx, remove a coluna 'Codigo',
+    e insere os dados na tabela 'propostas' no Supabase.
+    """
+
+    # ----------------------------
+    # 1. Conexão com o Supabase
+    # ----------------------------
+    supabase: Client = create_client(supabase_url, supabase_key)
+
+    # ----------------------------
+    # 2. Leitura da aba Propostas
+    # ----------------------------
+    try:
+        df = pd.read_excel(caminho_excel, sheet_name="Propostas")
+    except Exception as e:
+        print("Erro ao ler a planilha:", e)
+        return
+
+    # ----------------------------
+    # 3. Remover coluna indesejada
+    # ----------------------------
+    if "Codigo" in df.columns:
+        df = df.drop(columns=["Codigo"])
+
+    # ----------------------------
+    # 4. Converter NaN → None
+    # ----------------------------
+    df = df.where(pd.notnull(df), None)
+
+    # ----------------------------
+    # 5. Inserir no Supabase
+    # ----------------------------
+    registros = df.to_dict(orient="records")
+
+    try:
+        for chunk_start in range(0, len(registros), 1000):
+            chunk = registros[chunk_start:chunk_start+1000]
+            supabase.table("propostas").insert(chunk).execute()
+
+        print("Importação realizada com sucesso!")
+    except Exception as e:
+        print("Erro ao inserir dados no Supabase:", e)
+
+📌 Como usar
+importar_propostas_excel_para_supabase(
+    caminho_excel="Propostas.xlsx",
+    supabase_url=SUPABASE_URL,
+    supabase_key=SUPABASE_KEY
+)
+
