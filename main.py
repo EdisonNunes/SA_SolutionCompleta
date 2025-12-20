@@ -1,4 +1,7 @@
 import streamlit as st
+
+st.set_page_config(layout="wide", page_title="SA Solutions")
+
 import pandas as pd
 #import streamlit_authenticator as stauth
 from data_loader import *

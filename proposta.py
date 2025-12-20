@@ -1,14 +1,9 @@
 import streamlit as st
-st.set_page_config(layout="wide", page_title="Propostas Comerciais")
-
 from datetime import date
 from supabase import create_client
 from datetime import datetime
-
-# =========================================
-# CONFIG
-# =========================================
-
+from MalaDireta import substituir_tags, gerar_documento_proposta_word
+import tempfile
 
 SUPABASE_URL = st.secrets['supabase']['SUPABASE_URL']
 SUPABASE_KEY = st.secrets['supabase']['SUPABASE_KEY']
@@ -54,12 +49,12 @@ def excluir_proposta(id_proposta: int):
 
 def buscar_propostas(filtro: str = ""):
     q = (
-    supabase
-    .table("propostas")
-    .select("*")
-    .order("data_emissao", desc=True)  # 🔥 ordem pela data (mais recente primeiro)
-    .order("id_proposta", desc=True)   # 🔒 desempate seguro
-)
+        supabase
+        .table("propostas")
+        .select("*")
+        .order("data_emissao", desc=True)  # 🔥 ordem pela data (mais recente primeiro)
+        .order("id_proposta", desc=True)   # 🔒 desempate seguro
+    )
     if filtro:
         q = q.ilike("num_proposta", f"%{filtro}%")
     return q.execute().data
@@ -107,7 +102,7 @@ if "itens_novos" not in st.session_state:
 # =========================================
 st.title("📄 Propostas Comerciais")
 
-aba = st.tabs(["➕ Nova Proposta", "🔎 Buscar / Editar Proposta"])
+aba = st.tabs(["➕ Nova Proposta", "🔎 Editar Proposta"])
 
 # =========================================
 # ABA 1 – NOVA PROPOSTA
@@ -297,8 +292,32 @@ with aba[1]:
             st.session_state.edit_mode = True
             st.rerun()
     else:
-        col_btn1.success("📝 Modo Edição Ativo")
+        col_btn1.success("📝 Editando...")
 
+
+    # -----------------------------------
+    # BOTÃO GERAR WORD
+    # -----------------------------------
+    if not st.session_state.edit_mode:
+        if col_btn2.button("📄 Gerar documento Word", key="btn_word"):
+            caminho_template = "matriz.docx"
+            # ===============================
+            # ARQUIVO TEMPORÁRIO
+            # ===============================
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+            caminho_saida = f"proposta_{id_prop}.docx"
+
+            gerar_documento_proposta_word(supabase, id_prop, caminho_template, caminho_saida)
+
+            with open(caminho_saida, "rb") as f:
+                st.download_button(
+                    "⬇ Baixar documento Word",
+                    f,
+                    file_name=f"Proposta_{proposta_sel['num_proposta']}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+    else:
+        col_btn2.button("📄 Gerar documento Word", key="btn_word_disabled", disabled=True)        
     # -------------------------------
     # CAMPOS DA PROPOSTA
     # -------------------------------
@@ -331,7 +350,7 @@ with aba[1]:
     # AÇÕES DA PROPOSTA
     # -------------------------------
     if st.session_state.edit_mode:
-        col_save, col_del = st.columns(2)
+        col_save, col_del, col_back = st.columns([1,1,1])
 
         if col_save.button("💾 Salvar Alterações", key="edit_btn_salvar"):
             atualizar_proposta(id_prop, {
@@ -350,6 +369,9 @@ with aba[1]:
             st.session_state.edit_id_proposta = None
             st.session_state.edit_mode = False
             st.rerun()
+        if col_back.button("↩️ Voltar sem Alterar", key="edit_btn_voltar"):
+            st.session_state.edit_mode = False
+            st.rerun()    
 
     # =========================
     # ITENS DA PROPOSTA
@@ -413,125 +435,4 @@ with aba[1]:
                         st.rerun()
 
     st.info(f"💰 Total da Proposta: R$ {formatar_moeda_br(total)}")
-
-
-
-# with aba[1]:
-#     st.subheader("Buscar Proposta")
-
-#     filtro = st.text_input(
-#         "Buscar por Nº da Proposta",
-#         key="busca_num_proposta"
-#     )
-
-#     propostas = buscar_propostas(filtro)
-
-#     if not propostas:
-#         st.warning("Nenhuma proposta encontrada.")
-#     else:
-#         if "edit_id_proposta" not in st.session_state:
-#             st.session_state.edit_id_proposta = None
-
-#         proposta_sel = st.selectbox(
-#             "Selecione a proposta",
-#             propostas,
-#             format_func=lambda x: f"{x['num_proposta']}  👉  {x['empresa']}",
-#             key="busca_select_proposta"
-#         )
-
-#         data_emissao_db = (
-#             datetime.strptime(proposta_sel["data_emissao"], "%Y-%m-%d").date()
-#             if proposta_sel["data_emissao"]
-#             else date.today()
-#         )
-
-
-#         id_prop = proposta_sel["id_proposta"]
-
-#         st.divider()
-#         st.subheader("Editar Proposta")
-
-#         nova_data_emissao = st.date_input(
-#             "Data de Emissão",
-#             value=data_emissao_db,
-#             key="edit_data_emissao",
-#             format="DD/MM/YYYY"
-#         )
-
-#         nova_ref = st.text_input(
-#             "Referência",
-#             proposta_sel["referencia"],
-#             key="edit_referencia"
-#         )
-
-#         nova_validade = st.text_input(
-#             "Validade",
-#             proposta_sel["validade"],
-#             key="edit_validade"
-#         )
-
-#         nova_cond = st.text_input(
-#             "Cond. Pagamento",
-#             proposta_sel["cond_pagamento"],
-#             key="edit_cond_pagamento"
-#         )
-
-#         if st.button("💾 Atualizar Proposta", key="edit_btn_salvar"):
-#             atualizar_proposta(id_prop, {
-#                 "data_emissao": nova_data_emissao.isoformat(),
-#                 "referencia": nova_ref,
-#                 "validade": nova_validade,
-#                 "cond_pagamento": nova_cond
-#             })
-#             st.success("Proposta atualizada")
-
-#         # =========================
-#         # ITENS DA PROPOSTA
-#         # =========================
-#         st.divider()
-#         st.subheader("Itens da Proposta")
-
-#         itens = buscar_itens(id_prop)
-#         total = 0
-
-#         for item in itens:
-#             with st.expander(f"{item['codigo_servico']}"):
-#                 qtd = st.number_input(
-#                     "Qtd",
-#                     value=float(item["qtd"]),
-#                     key=f"edit_qtd_{item['id_item_prop']}"
-#                 )
-
-#                 desconto = st.number_input(
-#                     "Desconto (%)",
-#                     value=float(item["desconto"]),
-#                     key=f"edit_desc_{item['id_item_prop']}"
-#                 )
-
-#                 total += (qtd * item["preco_unitario"]) - (
-#                     item["preco_unitario"] * desconto / 100
-#                 )
-
-#                 if st.button(
-#                     "💾 Atualizar Item",
-#                     key=f"edit_btn_item_{item['id_item_prop']}"
-#                 ):
-#                     atualizar_item(item["id_item_prop"], {
-#                         "qtd": qtd,
-#                         "desconto": desconto
-#                     })
-#                     st.success("Item atualizado")
-
-#                 if st.button(
-#                     "🗑 Excluir Item",
-#                     key=f"edit_btn_del_{item['id_item_prop']}"
-#                 ):
-#                     excluir_item(item["id_item_prop"])
-#                     st.warning("Item excluído")
-
-#         st.info(f"💰 Total da Proposta: R$ {formatar_moeda_br(total)}")
-
-#         if st.button("❌ Excluir Proposta", key="edit_btn_del_prop"):
-#             excluir_proposta(id_prop)
-#             st.error("Proposta excluída")
 
