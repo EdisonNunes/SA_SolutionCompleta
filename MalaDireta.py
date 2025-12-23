@@ -1,40 +1,39 @@
 from docx import Document
 from docx.shared import Pt
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+from docx.shared import Inches
 from datetime import datetime
-import tempfile
-import os
-from docx2pdf import convert
 
 
-# ----------------------------------------------
-# Substituir TAGS
-# ----------------------------------------------
+# ======================================================
+# 1. Função auxiliar: substituição de TAGS
+# ======================================================
 def substituir_tags(paragrafo, tags: dict):
-    for tag, valor in tags.items():
-        if tag in paragrafo.text:
-            paragrafo.text = paragrafo.text.replace(tag, str(valor))
-    # aplica Arial 8
-    for run in paragrafo.runs:
-        run.font.name = "Arial"
-        run.font.size = Pt(8)
-
-
-# ----------------------------------------------
-# GERAR PDF FINAL DA PROPOSTA
-# ----------------------------------------------
-def gerar_documento_proposta_pdf(supabase, id_proposta, caminho_template, nome_pdf):
     """
-    Gera apenas PDF (nenhum DOCX é salvo).
-    1. Carrega matriz.docx
-    2. Preenche tags
-    3. Preenche tabela 2 com itens
-    4. Converte para PDF
-    5. Retorna caminho final do PDF
+    Substitui tags dentro de um parágrafo do Word.
+    Exemplo:
+        substituir_tags(p, {"{{CLIENTE}}": "Cristália"})
     """
 
-    # ------------------------------------------
-    # Buscar dados no Supabase
-    # ------------------------------------------
+    if not paragrafo.text:
+        return
+    
+    for chave, valor in tags.items():
+        if chave in paragrafo.text:
+            paragrafo.text = paragrafo.text.replace(chave, str(valor))
+
+# ======================================================
+# 2. Geração do documento Word
+# ======================================================
+def gerar_documento_proposta_word(
+    supabase,
+    id_proposta: int,
+    caminho_template: str,
+    caminho_saida: str
+):
+    # -------------------------------
+    # Buscar dados da proposta
+    # -------------------------------
     proposta = (
         supabase.table("propostas")
         .select("*")
@@ -58,14 +57,14 @@ def gerar_documento_proposta_pdf(supabase, id_proposta, caminho_template, nome_p
         .execute()
     ).data
 
-    # ------------------------------------------
+    # -------------------------------
     # Carregar template
-    # ------------------------------------------
+    # -------------------------------
     doc = Document(caminho_template)
 
-    # ------------------------------------------
+    # -------------------------------
     # Criar dicionário de TAGS
-    # ------------------------------------------
+    # -------------------------------
     data_emissao_formatada = datetime.strptime(
         proposta["data_emissao"], "%Y-%m-%d"
     ).strftime("%d/%m/%Y")
@@ -77,6 +76,7 @@ def gerar_documento_proposta_pdf(supabase, id_proposta, caminho_template, nome_p
         "{{COND_PAGAMENTO}}": proposta["cond_pagamento"],
         "{{REFERENCIA}}": proposta["referencia"],
 
+        # Dados do cliente
         "{{ID}}": cliente["id"],
         "{{CLIENTE}}": cliente["empresa"],
         "{{CNPJ}}": cliente["cnpj"],
@@ -88,43 +88,62 @@ def gerar_documento_proposta_pdf(supabase, id_proposta, caminho_template, nome_p
         "{{TELEFONE}}": cliente["telefone"],
     }
 
-    # ------------------------------------------
-    # Substituir tags nos parágrafos
-    # ------------------------------------------
+    # -------------------------------
+    # Substituir tags no documento
+    # -------------------------------
     for p in doc.paragraphs:
         substituir_tags(p, tags)
+        # Arial 8 somente para conteúdo
+        for run in p.runs:
+            run.font.name = "Arial"
+            run.font.size = Pt(8)
 
-    # ------------------------------------------
-    # Substituir tags nas tabelas
-    # ------------------------------------------
+    # -------------------------------
+    # Substituir tags em todas as tabelas
+    # -------------------------------
     for tabela in doc.tables:
         for linha in tabela.rows:
             for cel in linha.cells:
                 for p in cel.paragraphs:
                     substituir_tags(p, tags)
+                    # Arial 8
+                    for run in p.runs:
+                        run.font.name = "Arial"
+                        run.font.size = Pt(8)
+    # -------------------------------
+    # Substituir tags no rodapé
+    # -------------------------------
+    for section in doc.sections:
+        footer = section.footer
+        for p in footer.paragraphs:
+            substituir_tags(p, tags)
+            for run in p.runs:
+                run.font.name = "Arial"
+                run.font.size = Pt(5) # Tamanho 5
 
-    # ==================================================
-    # TABELA DE ITENS — segunda tabela do documento
-    # ==================================================
-    tabela_itens = doc.tables[1]  # <-- IMPORTANTE!
+    # ================================
+    # 4) TABELA DE ITENS (SEGUNDA TABELA!)
+    # ================================
+    tabela_itens = doc.tables[1]   # <-- AQUI!
 
-    # Garantir 8 colunas
+    # Validar número de colunas
     if len(tabela_itens.rows[0].cells) != 8:
-        raise ValueError("A segunda tabela do template deve possuir 8 colunas.")
+        raise ValueError("A tabela do template deve ter 8 colunas.")
 
-    # Remover linhas extras, mantendo somente o cabeçalho
+    # Remover TODAS as linhas após o cabeçalho
     while len(tabela_itens.rows) > 1:
         tabela_itens._element.remove(tabela_itens.rows[-1]._element)
 
+    # ================================
+    # 5) ADICIONAR ITENS
+    # ================================
     total_proposta = 0
 
-    # ------------------------------------------
-    # Inserir itens
-    # ------------------------------------------
     for idx, item in enumerate(itens, start=1):
         qtd = float(item["qtd"])
         preco = float(item["preco_unitario"])
         desconto = float(item["desconto"])
+
         total_item = (qtd * preco) - (preco * desconto / 100)
         total_proposta += total_item
 
@@ -136,50 +155,41 @@ def gerar_documento_proposta_pdf(supabase, id_proposta, caminho_template, nome_p
         linha[3].text = item["prazo_ddl"]
         linha[4].text = str(int(qtd))
         linha[5].text = f"R$ {preco:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        linha[6].text = f"{desconto:.2f}%"
+        linha[6].text = f"{desconto:.0f}%"
         linha[7].text = f"R$ {total_item:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-        # Arial 8
+        # aplica fonte Arial 8
         for cel in linha:
-            for p in cel.paragraphs:
-                for run in p.runs:
+            for par in cel.paragraphs:
+                for run in par.runs:
                     run.font.name = "Arial"
                     run.font.size = Pt(8)
-
-    # Linha em branco
+    # ================================
+    # 6) LINHA EM BRANCO
+    # ================================
     linha_vazia = tabela_itens.add_row().cells
     for cel in linha_vazia:
-        r = cel.paragraphs[0].add_run(" ")
-        r.font.name = "Arial"
-        r.font.size = Pt(8)
+        par = cel.paragraphs[0]
+        run = par.add_run(" ")
+        run.font.name = "Arial"
+        run.font.size = Pt(8)
 
-    # Sub.Total
+    # ================================
+    # 7) LINHA SUB.TOTAL
+    # ================================
     linha_total = tabela_itens.add_row().cells
+
     linha_total[5].text = "Sub.Total:"
     linha_total[7].text = (
         f"R$ {total_proposta:,.2f}"
         .replace(",", "X").replace(".", ",").replace("X", ".")
     )
-
     for cel in linha_total:
-        for p in cel.paragraphs:
-            for run in p.runs:
+        for par in cel.paragraphs:
+            for run in par.runs:
                 run.font.name = "Arial"
                 run.font.size = Pt(8)
 
-    # ======================================================
-    #  SALVAR EM TEMPORÁRIO COMO DOCX → CONVERTER PARA PDF
-    # ======================================================
-    temp_docx = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
-    temp_pdf  = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+    
+    doc.save(caminho_saida)
 
-    doc.save(temp_docx)
-    convert(temp_docx, temp_pdf)
-
-    # ======================================================
-    #  RENOMEAR PARA O NOME ESCOLHIDO PELO USUÁRIO
-    # ======================================================
-    caminho_pdf_final = os.path.join(tempfile.gettempdir(), nome_pdf)
-    os.replace(temp_pdf, caminho_pdf_final)
-
-    return caminho_pdf_final
+    return caminho_saida
